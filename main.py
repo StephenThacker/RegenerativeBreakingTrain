@@ -1,10 +1,12 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import math
+import networkx
 
 #traction effort curve: gives the maximum tractive effort that can be applied at a speed
 #resistance is a function of velocity and curvature (which we can neglect, as we assume there is none). So, resistance
 #Will be completely dependent on speed i.e, not influenced immediately by instantaneous tractive effort.
+#Assumptions: No loss due to friction
 def train_force_resistance_curve(speed):
     #approximation based on Fig2 of "A Power-Management Strategy for Multiple Unit Railroad Vehicles"
     #x-coordinate is speed in km/hr
@@ -75,6 +77,7 @@ class train():
         self.time_elapsed = 0
         self.total_energy_in_system = 0
         self.energy_added_in_step = 0
+        self.total_engine_energy_consumption = 0
 
 
     #Uses fig 2, traction force curve/speed in Km/hr and compares with
@@ -84,14 +87,14 @@ class train():
         if vehicle_speed == 0:
             vehicle_speed = 2
         self.angular_speed = convert_vehicle_speed_into_ang_speed(vehicle_speed, self.wheel_radius)
-        self.total_wheel_power = self.angular_speed*self.current_tractive_effort
+        self.total_wheel_power = self.angular_speed*self.current_tractive_effort*self.wheel_radius
         self.energy_added_in_step = np.abs(self.total_energy_in_system - (self.total_wheel_power/self.powertrain_efficiency_coefficient))
         self.total_energy_in_system = self.total_wheel_power/self.powertrain_efficiency_coefficient
         #ouput power efficiency graph is related to rates
         return self.total_current_engine_output/motor_energy_efficiency_curve(self.energy_added_in_step)
 
     #Equation of motion for electric trains, returns acceleration.
-    def lomonoffs_equation_of_motion(self, effective_mass,tare_mass, slope_angle, vehicle_resistance, tractive_effort, acceleration_from_g):
+    def lomonoffs_equation_of_motion_acc(self, effective_mass,tare_mass, slope_angle, vehicle_resistance, tractive_effort, acceleration_from_g):
         return (tractive_effort - vehicle_resistance - tare_mass*acceleration_from_g*np.sin(slope_angle))/effective_mass
 
     #in our simulation, we assume the train utilizes the maximum tractive effort possible, according to the tractive effort curve, finally
@@ -102,10 +105,11 @@ class train():
             result = train_force_resistance_curve(self.vehicle_speed)
             self.current_tractive_effort = result[0]
             self.current_train_resistance = result[1]
-            self.current_engine_power_consumption = self.estimate_current_diesel_motor_energy(self.vehicle_speed)
-            self.total_power_expended += self. current_engine_power_consumption*self.time_increment
+            self.current_engine_energy_consumption = self.estimate_current_diesel_motor_energy(self.vehicle_speed)
+            self.total_power_expended += self. current_engine_energy_consumption*self.time_increment
+            self.power_lost_so_far = self.total_power_expended - self.total_energy_in_system
             #update vehicle speed, based on traction effort
-            self.train_acceleration = self.lomonoffs_equation_of_motion(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
+            self.train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
             print("train acc")
             print(self.train_acceleration)
             print("time")
@@ -125,7 +129,7 @@ class train():
 
             self.time_elapsed += self.time_increment
 
-        return [self.time_elapsed,self.current_tractive_effort, self.current_engine_power_consumption, self.total_power_expended,self.train_acceleration,self.train_position,self.vehicle_speed, self.energy_added_in_step,self.energy_added_in_step]
+        return [self.time_elapsed,self.current_tractive_effort, self.current_engine_energy_consumption, self.total_power_expended,self.train_acceleration,self.train_position,self.vehicle_speed, self.energy_added_in_step,self.energy_added_in_step]
 
     def run_simulation(self):
         curr_time = []
@@ -146,13 +150,15 @@ class train():
             train_pos_arr += [sim_variables[5]]
             train_speed_arr += [sim_variables[6]]
             change_kin_eng_arr += [sim_variables[7]]
-            
-        
 
-        print(curr_time)
-        print(train_pos_arr)
-        print(curr_eng_pow_consum_arr)
-        print("stop")
+        self.state_building_speed = False
+        return
+
+    def generate_braking_points(self):
+        return
+
+    #routine for testing the breaking physics.
+    def breaking_routine(self):
         return
 
 
