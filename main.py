@@ -17,10 +17,10 @@ def train_force_resistance_curve(speed):
         tractive_effort = 200
 
     if 90 <= speed and speed <= 200:
-        tractive_effort = -1*speed + 290
+        tractive_effort = 200*np.exp(-1*(speed -90)/137.77)
 
     if speed>200:
-        tractive_effort = 90
+        tractive_effort = 200*np.exp(-1*(200 -90)/137.77)
 
     #Crude approximation of speed and resistance, according to figure 2
     resistance = 0.2*speed + 5
@@ -40,7 +40,7 @@ def electric_maximum_breaking_rate(train_speed):
         return 1
 
     if train_speed >= 90:
-        electric_braking_rate = -1*(1/110)*(train_speed - 90)
+        electric_braking_rate = np.exp(-1*(train_speed -90)/70)
         return electric_braking_rate
 
 def convert_vehicle_speed_into_ang_speed(vehicle_speed, wheel_radius):
@@ -92,7 +92,11 @@ class train():
         self.force_total_braking = 0
         self.current_breaking_force = 0
         self.proportion_electrical_break = 0
-        self.proportion_mechanical_break = 0 
+        self.proportion_mechanical_break = 0
+        self.constant_breaking_rate = 1
+        self.curr_max_possible_regen_breaking_rate = 0
+        self.braking_starting_location = 0
+        self.braking_start_kinetic_energy = 0
 
 
     #Uses fig 2, traction force curve/speed in Km/hr and compares with
@@ -122,7 +126,7 @@ class train():
             self.current_tractive_effort = result[0]
             self.current_train_resistance = result[1]
             self.train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
-            self.current_effective_tractive_effort = self.effective_mass*self.train_acceleration
+            self.current_tractive_effort = self.effective_mass*self.train_acceleration
             self.current_kinetic_energy = 0.5*self.effective_mass*(self.vehicle_speed)**2
 
             #update vehicle speed, based on traction effort
@@ -136,13 +140,31 @@ class train():
             self.current_train_resistance = train_force_resistance_curve(self.vehicle_speed)[1]
             self.current_tractive_effort = 0
             self.current_tractive_effort = -1*self.current_breaking_force
+            #update speed/distance profiles
+            self.train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
 
 
         return [self.time_elapsed, self.train_acceleration, self.train_position, self.vehicle_speed]
     
+    
+    '''
     #sets the proportion of electrical and mechanical breaking
-    def set_breaking_combination(self):
+    def set_breaking_combination(self, target_breaking_force, speed):
+        self.curr_max_possible_regen_breaking_rate = electric_maximum_breaking_rate(speed)
+        #checks if current requested breaking value is possible, sets prop. break rate for mech to "inf" if not.
+        if target_breaking_force - self.curr_max_possible_regen_breaking_rate > self.constant_breaking_rate:
+            self.proportion_mechanical_break = float("inf")
+        #calculates proportion of mechanical breaking (as percente of max possible) to use to reach target breaking force
+        #given that the target breaking force is greater than the maximum current possible electric breaking force
+        elif target_breaking_force > self.curr_max_possible_regen_breaking_rate:
+            self.proportion_mechanical_break = (target_breaking_force - self.curr_max_possible_regen_breaking_rate)/self.constant_breaking_rate
+        #If current requested electric breaking force < max, adjust proportion in class variable.
+        elif target_breaking_force <= self.curr_max_possible_regen_breaking_rate:
+            self.proportion_electrical_break = target_breaking_force/self.curr_max_possible_regen_breaking_rate
         return
+        '''
+    
+    
 
     def run_simulation(self):
         curr_time = []
@@ -150,24 +172,24 @@ class train():
         train_pos_arr = []
         train_speed_arr = []
         #bring vehicle up to 150 km/hr
-        while self.vehicle_speed <= 150:
+        while self.vehicle_speed <= 170:
             sim_variables = self.simulation()
             curr_time += [sim_variables[0]]
             train_acc_arr += [sim_variables[1]]
             train_pos_arr += [sim_variables[2]]
             train_speed_arr += [sim_variables[3]]
 
-        print(train_acc_arr)
         #set traction effort to 0, to represent engine idling, change to braking state
-        self.current_tractive_effort = 0
+        #self.current_tractive_effort = 0
+        #These are pre-breaking variables being set
         self.state_building_speed = False
         self.state_braking = True
+        self.braking_starting_location = self.train_position
+        self.braking_start_kinetic_energy = self.current_kinetic_energy
+
         return
 
     # Generate curves associated with braking speeds for electric braking/forward braking.
-    def generate_braking_curves(self):
-
-        return
 
     #routine for testing the breaking physics.
     #To determine the range, we need to use the maximum breaking rate.
@@ -184,3 +206,4 @@ if __name__ == '__main__':
     electric_train = train()
     electric_train.run_simulation()
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
+
