@@ -23,7 +23,10 @@ def train_force_resistance_curve(speed):
         tractive_effort = 200*np.exp(-1*(200 -90)/137.77)
 
     #Crude approximation of speed and resistance, according to figure 2
-    resistance = 0.2*speed + 5
+    if speed < 0:
+        resistance = 0
+    else:
+        resistance = 0.2*speed + 5
 
     return [tractive_effort,resistance]
 
@@ -37,10 +40,10 @@ def motor_energy_efficiency_curve(motor_energy_output):
 #Returns the braking rate information, based on speed. Speed of 100 km/hr chosen for the cutoff.
 def electric_maximum_breaking_rate(train_speed):
     if train_speed < 90:
-        return 1
+        return 80
 
     if train_speed >= 90:
-        electric_braking_rate = np.exp(-1*(train_speed -90)/70)
+        electric_braking_rate = 80*np.exp(-1*(train_speed -90)/70)
         return electric_braking_rate
 
 def convert_vehicle_speed_into_ang_speed(vehicle_speed, wheel_radius):
@@ -67,7 +70,7 @@ class train():
         self.current_acceleration = 0
         self.gravitational_constant_newtons = 6.6743*(10**-11)
         self.angle_of_incline = 0
-        self.wheel_radius =  0.762/2
+        self.wheel_radius = 0.762/2
         self.angular_speed = 0
         self.current_tractive_effort = 0
         self.current_train_resistance = 0
@@ -75,10 +78,10 @@ class train():
         self.powertrain_efficiency_coefficient = 0.9
         #kilowats is max power output number
         self.max_power_output = 3400
-        self.time_increment = 10
+        self.time_increment = 20
         self.total_wheel_power = 0
         self.total_current_engine_output = 0
-        self.engine_idle_power_cost = 500
+        self.engine_idle_power_cost = 250
         self.train_acceleration = 0
         self.total_power_expended = 0
         self.train_position = 0
@@ -93,10 +96,18 @@ class train():
         self.current_breaking_force = 0
         self.proportion_electrical_break = 0
         self.proportion_mechanical_break = 0
-        self.constant_breaking_rate = 1
+        self.constant_breaking_rate = 100
         self.curr_max_possible_regen_breaking_rate = 0
         self.braking_starting_location = 0
         self.braking_start_kinetic_energy = 0
+        self.curve_calculation_acceleration = 0
+        self.curve_calculation_position = 0
+        self.curve_calculation_velocity = 0
+        self.coasting_distance_limit = 200000
+        self.current_coasting_location = 0
+        self.state_coasting = False
+        self.coasting_train_acceleration = 0
+        self.coasting_vehicle_speed = 0
 
 
     #Uses fig 2, traction force curve/speed in Km/hr and compares with
@@ -126,7 +137,6 @@ class train():
             self.current_tractive_effort = result[0]
             self.current_train_resistance = result[1]
             self.train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
-            self.current_tractive_effort = self.effective_mass*self.train_acceleration
             self.current_kinetic_energy = 0.5*self.effective_mass*(self.vehicle_speed)**2
 
             #update vehicle speed, based on traction effort
@@ -135,6 +145,7 @@ class train():
             self.vehicle_speed = final_velocity(self.vehicle_speed, self.train_acceleration, self.time_increment)
 
             self.time_elapsed += self.time_increment
+            return [self.time_elapsed, self.train_acceleration, self.train_position, self.vehicle_speed]
 
         if self.state_braking:
             self.current_train_resistance = train_force_resistance_curve(self.vehicle_speed)[1]
@@ -142,11 +153,75 @@ class train():
             self.current_tractive_effort = -1*self.current_breaking_force
             #update speed/distance profiles
             self.train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
+            return
+
+        if self.state_coasting:
+            result = train_force_resistance_curve(self.vehicle_speed)
+            self.current_tractive_effort = 0
+            self.current_train_resistance = result[1]
+            self.coasting_train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass, self.tare_mass,
+                                                                            self.angle_of_incline,
+                                                                            self.current_train_resistance,
+                                                                            self.current_tractive_effort,
+                                                                            self.gravitational_constant_newtons)
+
+            print(self.coasting_train_acceleration)
+            print(self.coasting_vehicle_speed)
+            self.current_coasting_location = position_in_1_dimension(self.current_coasting_location, self.coasting_vehicle_speed, self.time_increment,
+                                                          self.coasting_train_acceleration)
+            self.coasting_vehicle_speed = final_velocity(self.coasting_vehicle_speed, self.coasting_train_acceleration, self.time_increment)
+
+            self.time_elapsed += self.time_increment
+            return [self.time_elapsed, self.coasting_train_acceleration, self.current_coasting_location, self.coasting_vehicle_speed]
 
 
-        return [self.time_elapsed, self.train_acceleration, self.train_position, self.vehicle_speed]
-    
-    
+    #Uses eq. of motion to determine position, velocity trajectory of a train stopping
+    def determine_max_stopping_trajectory(self, train_start_position, train_velocity, time_increment):
+        self.curve_calculation_velocity = train_velocity
+        self.curve_calculation_position = train_start_position
+        train_velocity_arr = []
+        train_position_arr = []
+        train_velocity_arr += [self.curve_calculation_velocity]
+        train_position_arr += [self.curve_calculation_position]
+
+        while self.curve_calculation_velocity > 0:
+            results = train_force_resistance_curve(train_velocity)
+            curve_resistance = results[1]
+            curve_max_braking_rate = -1*self.determine_max_breaking_force(self.curve_calculation_velocity)
+            self.curve_calculation_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,curve_resistance, curve_max_braking_rate,self.gravitational_constant_newtons)
+            self.curve_calculation_position = position_in_1_dimension(self.curve_calculation_position,self.curve_calculation_velocity,time_increment,self.curve_calculation_acceleration)
+            self.curve_calculation_velocity = final_velocity(self.curve_calculation_velocity,self.curve_calculation_acceleration,time_increment)
+            train_position_arr += [self.curve_calculation_position]
+            train_velocity_arr += [self.curve_calculation_velocity]
+
+        plt.plot(train_position_arr,train_velocity_arr)
+        return [train_position_arr,train_velocity_arr]
+
+    def determine_electric_break_stopping_trajectory(self, train_start_position, train_velocity,time_increment):
+        self.curve_calculation_velocity = train_velocity
+        self.curve_calculation_position = train_start_position
+        train_velocity_arr = []
+        train_position_arr = []
+        train_velocity_arr += [self.curve_calculation_velocity]
+        train_position_arr += [self.curve_calculation_position]
+
+        while self.curve_calculation_velocity > 0:
+            results = train_force_resistance_curve(train_velocity)
+            curve_resistance = results[1]
+            curve_max_braking_rate = -1*electric_maximum_breaking_rate(train_velocity)
+            self.curve_calculation_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,curve_resistance, curve_max_braking_rate,self.gravitational_constant_newtons)
+            self.curve_calculation_position = position_in_1_dimension(self.curve_calculation_position,self.curve_calculation_velocity,time_increment,self.curve_calculation_acceleration)
+            self.curve_calculation_velocity = final_velocity(self.curve_calculation_velocity,self.curve_calculation_acceleration,time_increment)
+            train_position_arr += [self.curve_calculation_position]
+            train_velocity_arr += [self.curve_calculation_velocity]
+
+        plt.plot(train_position_arr,train_velocity_arr)
+
+        return
+
+    def determine_max_breaking_force(self, train_speed):
+        return electric_maximum_breaking_rate(train_speed) + self.constant_breaking_rate
+
     '''
     #sets the proportion of electrical and mechanical breaking
     def set_breaking_combination(self, target_breaking_force, speed):
@@ -163,8 +238,8 @@ class train():
             self.proportion_electrical_break = target_breaking_force/self.curr_max_possible_regen_breaking_rate
         return
         '''
-    
-    
+
+
 
     def run_simulation(self):
         curr_time = []
@@ -172,22 +247,51 @@ class train():
         train_pos_arr = []
         train_speed_arr = []
         #bring vehicle up to 150 km/hr
-        while self.vehicle_speed <= 170:
+        while self.vehicle_speed <= 190:
             sim_variables = self.simulation()
             curr_time += [sim_variables[0]]
             train_acc_arr += [sim_variables[1]]
             train_pos_arr += [sim_variables[2]]
             train_speed_arr += [sim_variables[3]]
-
+        plt.plot(train_pos_arr,train_speed_arr)
+        #plt.show()
         #set traction effort to 0, to represent engine idling, change to braking state
         #self.current_tractive_effort = 0
+
         #These are pre-breaking variables being set
         self.state_building_speed = False
         self.state_braking = True
         self.braking_starting_location = self.train_position
         self.braking_start_kinetic_energy = self.current_kinetic_energy
+        train_curve_results = self.determine_max_stopping_trajectory(self.train_position,self.vehicle_speed,self.time_increment)
+        total_results_pos = train_pos_arr
+        total_results_pos += train_curve_results[0]
+        train_electric_stopping_curve = self.determine_electric_break_stopping_trajectory(self.train_position,self.vehicle_speed,self.time_increment)
 
-        return
+        #Calculating the "coasting" range
+        self.state_braking = False
+        self.state_coasting = True
+
+        coast_pos_arr = []
+        coast_speed_arr = []
+        self.current_coasting_location = self.train_position
+        self.coasting_vehicle_speed = self.vehicle_speed
+        while self.coasting_distance_limit >= self.current_coasting_location - self.train_position:
+            sim_variables = self.simulation()
+            self.current_coasting_location = sim_variables[2]
+            coast_pos_arr += [sim_variables[2]]
+            coast_speed_arr += [sim_variables[3]]
+        self.determine_max_stopping_trajectory(self.current_coasting_location,self.coasting_vehicle_speed,self.time_increment)
+        plt.plot(coast_pos_arr,coast_speed_arr)
+        plt.show()
+
+
+        #total_results_speed = train_speed_arr
+        #total_results_speed += train_curve_results[1]
+        #plt.plot(total_results_pos,total_results_speed)
+        #plt.show()
+
+        return train_curve_results
 
     # Generate curves associated with braking speeds for electric braking/forward braking.
 
