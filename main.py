@@ -108,6 +108,9 @@ class train():
         self.state_coasting = False
         self.coasting_train_acceleration = 0
         self.coasting_vehicle_speed = 0
+        self.RHS_interp_arr = []
+        self.LHS_interp_arr = []
+        self.prev_RHS = 0
 
 
 
@@ -288,8 +291,8 @@ class train():
         plt.plot(coast_pos_arr,coast_speed_arr)
         plt.xlabel("Distance")
         plt.ylabel("Speed in Km/hr")
-        plt.show()
-        plt.close()
+        #plt.show()
+        #plt.close()
 
         #handling graph interpolation problems, building graph, etc.
         self.generate_graph(train_curve_results,coast_results, max_traj_results2)
@@ -307,49 +310,69 @@ class train():
 
     def generate_graph(self, max_break_boundary, coast_boundary, deferred_max_break_boundary):
         #create dictionary for visualization purposes
-
+        #creating nodes coordinated with boundary
         node_dict = {}
+        node_dict1 = {}
+        node_dict2 = {}
         G = nx.DiGraph()
+        self.LHS_interp_arr = []
+        self.RHS_interp_arr = []
         for i in range(0,len(max_break_boundary[0])):
             G.add_node((max_break_boundary[0][i],max_break_boundary[1][i]))
             node_dict.update({(max_break_boundary[0][i],max_break_boundary[1][i]) : (max_break_boundary[0][i],max_break_boundary[1][i])})
+            node_dict1.update({(max_break_boundary[0][i],max_break_boundary[1][i]) : (max_break_boundary[0][i],max_break_boundary[1][i])})
+            self.LHS_interp_arr += [(max_break_boundary[0][i],max_break_boundary[1][i])]
 
         for i in range(0,len(coast_boundary[0])):
             G.add_node((coast_boundary[0][i],coast_boundary[1][i]))
             node_dict.update({(coast_boundary[0][i],coast_boundary[1][i]) : (coast_boundary[0][i],coast_boundary[1][i])})
-
+            node_dict2.update({(coast_boundary[0][i],coast_boundary[1][i]) : (coast_boundary[0][i],coast_boundary[1][i])})
+            self.RHS_interp_arr += [(coast_boundary[0][i],coast_boundary[1][i])]
 
         for i in range(0,len(deferred_max_break_boundary[0])):
-            G.add_node((deferred_max_break_boundary[0][i],deferred_max_break_boundary[0][i]))
-            node_dict.update({(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i]) :(deferred_max_break_boundary[0][i], deferred_max_break_boundary[1][i])})
+            G.add_node((deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i]))
+            node_dict.update({(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i]):(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i])})
+            node_dict2.update({(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i]) : (deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i])})
+            self.RHS_interp_arr += [(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i])]
 
+        interpolated_nodes = []
+        for i in range(1,len(self.LHS_interp_arr)):
+            try:
+                interpolated_nodes += [self.interpolate_graph(self.LHS_interp_arr[i])]
+            except IndexError:
+                break
 
-
-
-
-
-
-        #nx.draw(G, pos= node_dict, with_labels=True, node_color='skyblue', node_size=1500, font_size=10, font_weight='bold')
-        #plt.show()
-        '''
-        G = nx.DiGraph()
-        G.add_node((1,2))
-        G.add_node((2,2))
-        G.add_edge((1,2),(2,2))
-        G[(1,2)][(2,2)]['weight'] = 1
-        nx.draw(G, with_labels=True, node_color='skyblue', node_size=2, font_size=1, font_weight='bold')
-        print(G[(1,2)])
-
+        nx.draw(G, pos=node_dict, with_labels=False, node_color='skyblue', node_size=1, font_size=1,
+                    font_weight='bold')
+        plt.show()
         return
-        '''
+
+    def interpolate_graph(self, node):
+        first_y = node[1]
+        y_coordinate = node[1]
+        flag = True
+        count = 0
+        print("printing y")
+        print(y_coordinate)
+        while flag == True:
+            if y_coordinate == self.RHS_interp_arr[count][1]:
+                x_coordinate = self.RHS_interp_arr[count][0]
+                self.RHS_interp_arr.pop(count)
+                return (x_coordinate, y_coordinate)
+
+            elif y_coordinate < self.RHS_interp_arr[count][1]:
+                self.prev_RHS = self.RHS_interp_arr[count]
+                self.RHS_interp_arr.pop(count)
+            elif y_coordinate > self.RHS_interp_arr[count][1] and self.prev_RHS != 0:
+                self.RHS_interp_arr.pop(count)
+                return ((self.prev_RHS[0]+self.RHS_interp_arr[count][0])/2, y_coordinate)
+            elif first_y < self.RHS_interp_arr[count][1]:
+                self.RHS_interp_arr.pop(count)
 
 
 if __name__ == '__main__':
     electric_train = train()
     electric_train.run_simulation()
-    electric_train.generate_graph()
     plt.show()
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
-
-
