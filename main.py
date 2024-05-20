@@ -95,7 +95,7 @@ class train():
         self.powertrain_efficiency_coefficient = 0.9
         #kilowats is max power output number
         self.max_power_output = 3400
-        self.time_increment = 20
+        self.time_increment = 10
         self.total_wheel_power = 0
         self.total_current_engine_output = 0
         self.engine_idle_power_cost = 250
@@ -136,6 +136,7 @@ class train():
         self.row_array = []
         self.grid_row_array = []
         self.RHS_interp_arr2 = []
+        self.primary_node = 0
 
 
 
@@ -378,6 +379,7 @@ class train():
             G.add_node((interpolated_nodes[i]))
             self.node_dict.update({interpolated_nodes[i]:interpolated_nodes[i]})
         self.LHS_interp_arr1 = self.LHS_interp_arr
+        self.primary_node = self.LHS_interp_arr1[0]
         self.LHS_interp_arr.pop(0)
 
 
@@ -385,17 +387,28 @@ class train():
 
         array = self.sort_array_distance(RHS_array)
         sorted_list = sorted(array, key=lambda x: x[1])
+        sorted_list.insert(0,[self.primary_node,0])
 
         for i in range(0,len(sorted_list)):
             try:
                 self.determine_connections(sorted_list[i],i,sorted_list,60,G)
             except IndexError:
                 continue
-        number_of_nodes_to_visualize = 200
-        random_nodes = random.sample(list(G.nodes()), number_of_nodes_to_visualize)
-        subgraph = G.subgraph(random_nodes)
-        nx.draw(subgraph, pos=self.node_dict, with_labels=False, node_color='skyblue', node_size=2, font_size=5,
-                    font_weight='bold',width = 0.1)
+        #number_of_nodes_to_visualize = 400
+        #random_nodes = random.sample(list(G.nodes()), number_of_nodes_to_visualize)
+        #subgraph = G.subgraph(random_nodes)
+        nodes_of_interest = sorted_list[0:500]
+
+        shaped_array = []
+        for i in range(0,len(nodes_of_interest)):
+            shaped_array += [nodes_of_interest[i][0]]
+
+
+        subgraph2 = G.subgraph(shaped_array)
+        nx.draw(subgraph2, pos=self.node_dict, with_labels=False, node_color = 'skyblue', node_size = 2, font_size = 5)
+
+        #nx.draw(subgraph, pos=self.node_dict, with_labels=False, node_color='skyblue', node_size=2, font_size=5,
+        #            font_weight='bold',width = 0.1)
         plt.show()
         return
 
@@ -486,5 +499,3 @@ if __name__ == '__main__':
     plt.show()
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
-
-
