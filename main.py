@@ -1,5 +1,8 @@
+import random
+
 import numpy as np
 from matplotlib import pyplot as plt
+
 import math
 import networkx as nx
 
@@ -66,7 +69,7 @@ def create_equation_of_two_points(point_1,point_2):
         return [point_1[0],0,True]
 
 def calculate_distance(point_1,point_2):
-    return np.sqrt((point_1[0]**2 - point_2[0]**2) + (point_1[1]**2 + point_2[1]**2))
+    return math.sqrt((point_1[0] - point_2[0])**2 + (point_1[1] - point_2[1])**2)
 
 
 
@@ -130,6 +133,9 @@ class train():
         self.max_grid_partitions = 50
         self.node_dict = {}
         self.LHS_interp_arr1 = 0
+        self.row_array = []
+        self.grid_row_array = []
+        self.RHS_interp_arr2 = []
 
 
 
@@ -335,6 +341,7 @@ class train():
         G = nx.DiGraph()
         self.LHS_interp_arr = []
         self.RHS_interp_arr = []
+        RHS_array = []
         for i in range(0,len(max_break_boundary[0])):
             G.add_node((max_break_boundary[0][i],max_break_boundary[1][i]))
             self.node_dict.update({(max_break_boundary[0][i],max_break_boundary[1][i]) : (max_break_boundary[0][i],max_break_boundary[1][i])})
@@ -346,44 +353,75 @@ class train():
             self.node_dict.update({(coast_boundary[0][i],coast_boundary[1][i]) : (coast_boundary[0][i],coast_boundary[1][i])})
             node_dict2.update({(coast_boundary[0][i],coast_boundary[1][i]) : (coast_boundary[0][i],coast_boundary[1][i])})
             self.RHS_interp_arr += [(coast_boundary[0][i],coast_boundary[1][i])]
+            RHS_array += [(coast_boundary[0][i],coast_boundary[1][i])]
 
         for i in range(0,len(deferred_max_break_boundary[0])):
             G.add_node((deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i]))
             self.node_dict.update({(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i]):(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i])})
             node_dict2.update({(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i]) : (deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i])})
             self.RHS_interp_arr += [(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i])]
+            RHS_array += [(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i])]
 
+        self.RHS_interp_arr2 = self.RHS_interp_arr
+        self.RHS_interp_arr2.pop(0)
         interpolated_nodes = []
+        RHS_array.pop(0)
 
         for i in range(1,len(self.LHS_interp_arr)):
             try:
                 interpolated_nodes += [self.interpolate_graph2(self.LHS_interp_arr[i])]
             except IndexError:
                 break
-
         self.interp_rows = interpolated_nodes
         for i in range(0,len(interpolated_nodes)):
+            self.row_array += [interpolated_nodes[i]]
             G.add_node((interpolated_nodes[i]))
             self.node_dict.update({interpolated_nodes[i]:interpolated_nodes[i]})
         self.LHS_interp_arr1 = self.LHS_interp_arr
         self.LHS_interp_arr.pop(0)
 
+
         G = self.generate_grid(self.LHS_interp_arr,self.interp_rows,G)
 
-        nx.draw(G, pos=self.node_dict, with_labels=False, node_color='skyblue', node_size=2, font_size=5,
-                    font_weight='bold')
+        array = self.sort_array_distance(RHS_array)
+        sorted_list = sorted(array, key=lambda x: x[1])
+
+        for i in range(0,len(sorted_list)):
+            try:
+                self.determine_connections(sorted_list[i],i,sorted_list,60,G)
+            except IndexError:
+                continue
+        number_of_nodes_to_visualize = 200
+        random_nodes = random.sample(list(G.nodes()), number_of_nodes_to_visualize)
+        subgraph = G.subgraph(random_nodes)
+        nx.draw(subgraph, pos=self.node_dict, with_labels=False, node_color='skyblue', node_size=2, font_size=5,
+                    font_weight='bold',width = 0.1)
         plt.show()
         return
 
-    def sort_array_distance(self):
-        node = self.LHS_interp_arr1[0]
-        array = self.LHS_interp_arr1.pop[0]
-        dist_array = []
-    
-
-
-
+    def determine_connections(self,node,node_index, sorted_list, number_of_partitions, G):
+        max_distance = sorted_list[len(sorted_list)-1][1]
+        search_radius = max_distance/number_of_partitions
+        translated_radius = node[1] + search_radius
+        reference_counter = sorted_list[node_index+1][1]
+        counter = node_index+1
+        while reference_counter <= translated_radius + search_radius:
+            if node[0][0] < sorted_list[counter][0][0] and node[0][1] > sorted_list[counter][0][1]:
+                G.add_edge(node[0],sorted_list[counter][0])
+            counter += 1
+            reference_counter = sorted_list[counter][1]
         return
+    def sort_array_distance(self, RHS_array):
+        node = self.LHS_interp_arr1[0]
+        self.LHS_interp_arr1.pop(0)
+        array = self.LHS_interp_arr1
+        array += self.grid_row_array
+        array += RHS_array
+        dist_array = []
+        for i in range(0,len(array)):
+            dist_array += [[array[i], calculate_distance(node,array[i])]]
+
+        return dist_array
     #Generate grid
     def generate_grid(self,LHS_nodes,RHS_nodes,Graph):
         max_dist_LHS = LHS_nodes[len(LHS_nodes)-1][0]
@@ -396,6 +434,7 @@ class train():
             while current_dist + LHS_nodes[i][0] <= RHS_nodes[i][0]:
                 Graph.add_node((LHS_nodes[i][0]+current_dist,LHS_nodes[i][1]))
                 self.node_dict.update({(LHS_nodes[i][0]+current_dist,LHS_nodes[i][1]):(LHS_nodes[i][0]+current_dist,LHS_nodes[i][1])})
+                self.grid_row_array += [(LHS_nodes[i][0]+current_dist,LHS_nodes[i][1])]
                 current_dist += search_dist
         return Graph
     def interpolate_graph2(self, node):
@@ -447,4 +486,5 @@ if __name__ == '__main__':
     plt.show()
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
+
 
