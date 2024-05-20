@@ -65,6 +65,9 @@ def create_equation_of_two_points(point_1,point_2):
     except ZeroDivisionError:
         return [point_1[0],0,True]
 
+def calculate_distance(point_1,point_2):
+    return np.sqrt((point_1[0]**2 - point_2[0]**2) + (point_1[1]**2 + point_2[1]**2))
+
 
 
 
@@ -126,6 +129,7 @@ class train():
         self.interp_rows = []
         self.max_grid_partitions = 50
         self.node_dict = {}
+        self.LHS_interp_arr1 = 0
 
 
 
@@ -361,7 +365,7 @@ class train():
         for i in range(0,len(interpolated_nodes)):
             G.add_node((interpolated_nodes[i]))
             self.node_dict.update({interpolated_nodes[i]:interpolated_nodes[i]})
-
+        self.LHS_interp_arr1 = self.LHS_interp_arr
         self.LHS_interp_arr.pop(0)
 
         G = self.generate_grid(self.LHS_interp_arr,self.interp_rows,G)
@@ -371,6 +375,15 @@ class train():
         plt.show()
         return
 
+    def sort_array_distance(self):
+        node = self.LHS_interp_arr1[0]
+        array = self.LHS_interp_arr1.pop[0]
+        dist_array = []
+    
+
+
+
+        return
     #Generate grid
     def generate_grid(self,LHS_nodes,RHS_nodes,Graph):
         max_dist_LHS = LHS_nodes[len(LHS_nodes)-1][0]
@@ -434,3 +447,4 @@ if __name__ == '__main__':
     plt.show()
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
+
