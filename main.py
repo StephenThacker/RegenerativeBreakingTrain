@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import math
-import networkx
+import networkx as nx
 
 #traction effort curve: gives the maximum tractive effort that can be applied at a speed
 #resistance is a function of velocity and curvature (which we can neglect, as we assume there is none). So, resistance
@@ -40,10 +40,10 @@ def motor_energy_efficiency_curve(motor_energy_output):
 #Returns the braking rate information, based on speed. Speed of 100 km/hr chosen for the cutoff.
 def electric_maximum_breaking_rate(train_speed):
     if train_speed < 90:
-        return 80
+        return 120
 
     if train_speed >= 90:
-        electric_braking_rate = 80*np.exp(-1*(train_speed -90)/70)
+        electric_braking_rate = 120*np.exp(-1*(train_speed -90)/70)
         return electric_braking_rate
 
 def convert_vehicle_speed_into_ang_speed(vehicle_speed, wheel_radius):
@@ -96,18 +96,19 @@ class train():
         self.current_breaking_force = 0
         self.proportion_electrical_break = 0
         self.proportion_mechanical_break = 0
-        self.constant_breaking_rate = 100
+        self.constant_breaking_rate = 120
         self.curr_max_possible_regen_breaking_rate = 0
         self.braking_starting_location = 0
         self.braking_start_kinetic_energy = 0
         self.curve_calculation_acceleration = 0
         self.curve_calculation_position = 0
         self.curve_calculation_velocity = 0
-        self.coasting_distance_limit = 200000
+        self.coasting_distance_limit = 240000
         self.current_coasting_location = 0
         self.state_coasting = False
         self.coasting_train_acceleration = 0
         self.coasting_vehicle_speed = 0
+
 
 
     #Uses fig 2, traction force curve/speed in Km/hr and compares with
@@ -156,7 +157,7 @@ class train():
             return
 
         if self.state_coasting:
-            result = train_force_resistance_curve(self.vehicle_speed)
+            result = train_force_resistance_curve(self.coasting_vehicle_speed)
             self.current_tractive_effort = 0
             self.current_train_resistance = result[1]
             self.coasting_train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass, self.tare_mass,
@@ -165,8 +166,6 @@ class train():
                                                                             self.current_tractive_effort,
                                                                             self.gravitational_constant_newtons)
 
-            print(self.coasting_train_acceleration)
-            print(self.coasting_vehicle_speed)
             self.current_coasting_location = position_in_1_dimension(self.current_coasting_location, self.coasting_vehicle_speed, self.time_increment,
                                                           self.coasting_train_acceleration)
             self.coasting_vehicle_speed = final_velocity(self.coasting_vehicle_speed, self.coasting_train_acceleration, self.time_increment)
@@ -194,6 +193,7 @@ class train():
             train_position_arr += [self.curve_calculation_position]
             train_velocity_arr += [self.curve_calculation_velocity]
 
+
         plt.plot(train_position_arr,train_velocity_arr)
         return [train_position_arr,train_velocity_arr]
 
@@ -214,10 +214,9 @@ class train():
             self.curve_calculation_velocity = final_velocity(self.curve_calculation_velocity,self.curve_calculation_acceleration,time_increment)
             train_position_arr += [self.curve_calculation_position]
             train_velocity_arr += [self.curve_calculation_velocity]
-
         plt.plot(train_position_arr,train_velocity_arr)
 
-        return
+        return [train_position_arr,train_velocity_arr]
 
     def determine_max_breaking_force(self, train_speed):
         return electric_maximum_breaking_rate(train_speed) + self.constant_breaking_rate
@@ -247,7 +246,7 @@ class train():
         train_pos_arr = []
         train_speed_arr = []
         #bring vehicle up to 150 km/hr
-        while self.vehicle_speed <= 190:
+        while self.vehicle_speed <= 199:
             sim_variables = self.simulation()
             curr_time += [sim_variables[0]]
             train_acc_arr += [sim_variables[1]]
@@ -261,6 +260,7 @@ class train():
         #These are pre-breaking variables being set
         self.state_building_speed = False
         self.state_braking = True
+        #initiating the process to determine graph boundaries
         self.braking_starting_location = self.train_position
         self.braking_start_kinetic_energy = self.current_kinetic_energy
         train_curve_results = self.determine_max_stopping_trajectory(self.train_position,self.vehicle_speed,self.time_increment)
@@ -276,20 +276,24 @@ class train():
         coast_speed_arr = []
         self.current_coasting_location = self.train_position
         self.coasting_vehicle_speed = self.vehicle_speed
+        coast_pos_arr += [self.current_coasting_location]
+        coast_speed_arr += [self.coasting_vehicle_speed]
         while self.coasting_distance_limit >= self.current_coasting_location - self.train_position:
             sim_variables = self.simulation()
             self.current_coasting_location = sim_variables[2]
             coast_pos_arr += [sim_variables[2]]
             coast_speed_arr += [sim_variables[3]]
-        self.determine_max_stopping_trajectory(self.current_coasting_location,self.coasting_vehicle_speed,self.time_increment)
+        coast_results = [coast_pos_arr,coast_speed_arr]
+        max_traj_results2 = self.determine_max_stopping_trajectory(self.current_coasting_location,self.coasting_vehicle_speed,self.time_increment)
         plt.plot(coast_pos_arr,coast_speed_arr)
+        plt.xlabel("Distance")
+        plt.ylabel("Speed in Km/hr")
         plt.show()
+        plt.close()
 
+        #handling graph interpolation problems, building graph, etc.
+        self.generate_graph(train_curve_results,coast_results, max_traj_results2)
 
-        #total_results_speed = train_speed_arr
-        #total_results_speed += train_curve_results[1]
-        #plt.plot(total_results_pos,total_results_speed)
-        #plt.show()
 
         return train_curve_results
 
@@ -301,13 +305,51 @@ class train():
     #take when you start maximal breaking immediately
     #and what path does the train take when you start your maximal breaking at the last moment possible to stop on time
 
-    def breaking_routine(self):
+    def generate_graph(self, max_break_boundary, coast_boundary, deferred_max_break_boundary):
+        #create dictionary for visualization purposes
+
+        node_dict = {}
+        G = nx.DiGraph()
+        for i in range(0,len(max_break_boundary[0])):
+            G.add_node((max_break_boundary[0][i],max_break_boundary[1][i]))
+            node_dict.update({(max_break_boundary[0][i],max_break_boundary[1][i]) : (max_break_boundary[0][i],max_break_boundary[1][i])})
+
+        for i in range(0,len(coast_boundary[0])):
+            G.add_node((coast_boundary[0][i],coast_boundary[1][i]))
+            node_dict.update({(coast_boundary[0][i],coast_boundary[1][i]) : (coast_boundary[0][i],coast_boundary[1][i])})
+
+
+        for i in range(0,len(deferred_max_break_boundary[0])):
+            G.add_node((deferred_max_break_boundary[0][i],deferred_max_break_boundary[0][i]))
+            node_dict.update({(deferred_max_break_boundary[0][i],deferred_max_break_boundary[1][i]) :(deferred_max_break_boundary[0][i], deferred_max_break_boundary[1][i])})
+
+
+
+
+
+
+
+        #nx.draw(G, pos= node_dict, with_labels=True, node_color='skyblue', node_size=1500, font_size=10, font_weight='bold')
+        #plt.show()
+        '''
+        G = nx.DiGraph()
+        G.add_node((1,2))
+        G.add_node((2,2))
+        G.add_edge((1,2),(2,2))
+        G[(1,2)][(2,2)]['weight'] = 1
+        nx.draw(G, with_labels=True, node_color='skyblue', node_size=2, font_size=1, font_weight='bold')
+        print(G[(1,2)])
 
         return
+        '''
 
 
 if __name__ == '__main__':
     electric_train = train()
     electric_train.run_simulation()
+    electric_train.generate_graph()
+    plt.show()
+
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
+
 
