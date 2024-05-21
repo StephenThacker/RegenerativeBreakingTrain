@@ -130,7 +130,7 @@ class train():
         self.prev_RHS = False
         self.RHS_lower = 0
         self.interp_rows = []
-        self.max_grid_partitions = 15
+        self.max_grid_partitions = 10
         self.node_dict = {}
         self.LHS_interp_arr1 = 0
         self.row_array = []
@@ -386,15 +386,18 @@ class train():
 
         G = self.generate_grid(self.LHS_interp_arr,self.interp_rows,G)
 
+
         array = self.sort_array_distance(RHS_array)
         sorted_list = sorted(array, key=lambda x: x[1])
         sorted_list.insert(0,[self.primary_node,0])
+
+        vel_array = RHS_array[len(RHS_array)-50:len(RHS_array)-1]
 
         self.max_distance_from_list = sorted_list[len(sorted_list)-1][0][0] - sorted_list[0][0][0]
 
         for i in range(0,len(sorted_list)):
             try:
-                self.determine_connections(sorted_list[i],i,sorted_list,60,G)
+                self.determine_connections(sorted_list[i],i,sorted_list,80,G)
             except IndexError:
                 continue
         number_of_nodes_to_visualize = 400
@@ -414,10 +417,27 @@ class train():
 
         self.bellman_ford_algorithm_set_distance(shaped_array_bellman[0],G,shaped_array_bellman)
 
+        minimizing_arr = []
+        for i in range(0,len(vel_array)):
+            minimizing_arr += [[vel_array[i],G.nodes[vel_array[i]]['distance']]]
+
+        sorted_vel_list_final = sorted(minimizing_arr, key=lambda x: x[1])
+        end_node = sorted_vel_list_final[len(sorted_vel_list_final)-1]
+        path_nodes = self.trace_back_path(end_node,shaped_array_bellman[0],G)
+
+        subgraph = G.subgraph(path_nodes)
+        nx.draw(subgraph, pos=self.node_dict, with_labels= False, node_color = 'skyblue',node_size = 2, font_size = 5)
+        plt.show()
+
+
+
+
+        #creating fastest path.
+        #min_node = min(G.nodes, key=lambda node: G.nodes[node]['distance'])
 
         #subgraph2 = G.subgraph(shaped_array)
-        nx.draw(subgraph, pos=self.node_dict, with_labels=False, node_color = 'skyblue', node_size = 2, font_size = 5)
-        #labels = nx.get_edge_attributes(subgraph,'weight')
+        nx.draw(G, pos=self.node_dict, with_labels=False, node_color = 'skyblue', node_size = 2, font_size = 5)
+        #labels = nx.get_edge_attributes(G,'distance')
         #nx.draw_networkx_edge_labels(G, pos=self.node_dict, edge_labels=labels, font_size=4)
 
         #nx.draw(subgraph, pos=self.node_dict, with_labels=False, node_color='skyblue', node_size=2, font_size=5,
@@ -425,6 +445,17 @@ class train():
         plt.show()
         return
 
+    #traces back the path and records the intermediate nodes.
+    def trace_back_path(self,end_node,start_node,graph):
+        intermediate_nodes = []
+        current_node = end_node[0]
+        while current_node != start_node:
+            intermediate_nodes += [current_node]
+            test_variable = graph.nodes[current_node]['predecessor']
+            print(graph.nodes[current_node]['predecessor'])
+            current_node = graph.nodes[current_node]['predecessor']
+
+        return intermediate_nodes
 
     def bellman_ford_algorithm_set_distance(self, start_node, graph,sorted_list):
         graph.nodes[sorted_list[0]]['distance'] = 0
@@ -436,7 +467,6 @@ class train():
                 graph.nodes[sorted_list[i]]['predecessor'] = None
 
         for i in range(0,len(sorted_list)-1):
-            print(i)
             for node_1,node_2 in graph.edges():
                 if graph.nodes[node_1]['distance'] + graph[node_1][node_2]['weight'] < graph.nodes[node_2]['distance']:
                     graph.nodes[node_2]['distance'] = graph.nodes[node_1]['distance'] + graph[node_1][node_2]['weight']
