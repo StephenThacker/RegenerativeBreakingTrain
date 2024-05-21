@@ -57,7 +57,7 @@ def final_velocity(initial_velocity, acceleration,time):
     return initial_velocity + acceleration*time
 
 def position_in_1_dimension(initial_position, initial_vel, time, acceleration):
-    return initial_position + initial_vel*time + 0.5*acceleration*(time)**2
+    return initial_position + initial_vel*(time) + 0.5*acceleration*(time)**2
 
 #creates line from two points
 def create_equation_of_two_points(point_1,point_2):
@@ -167,6 +167,7 @@ class train():
             self.current_tractive_effort = result[0]
             self.current_train_resistance = result[1]
             self.train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
+            print("here")
             self.current_kinetic_energy = 0.5*self.effective_mass*(self.vehicle_speed)**2
 
             #update vehicle speed, based on traction effort
@@ -397,7 +398,7 @@ class train():
         #number_of_nodes_to_visualize = 400
         #random_nodes = random.sample(list(G.nodes()), number_of_nodes_to_visualize)
         #subgraph = G.subgraph(random_nodes)
-        nodes_of_interest = sorted_list[0:500]
+        nodes_of_interest = sorted_list[0:50]
 
         shaped_array = []
         for i in range(0,len(nodes_of_interest)):
@@ -406,10 +407,39 @@ class train():
 
         subgraph2 = G.subgraph(shaped_array)
         nx.draw(subgraph2, pos=self.node_dict, with_labels=False, node_color = 'skyblue', node_size = 2, font_size = 5)
+        labels = nx.get_edge_attributes(subgraph2,'weight')
+        nx.draw_networkx_edge_labels(G, pos=self.node_dict, edge_labels=labels, font_size=4)
 
         #nx.draw(subgraph, pos=self.node_dict, with_labels=False, node_color='skyblue', node_size=2, font_size=5,
         #            font_weight='bold',width = 0.1)
         plt.show()
+        return
+
+    #computes the weight values of the edges.
+    #resistance acceleration is always present.
+    #Need to compute the work done by the breaks, what is lost as heat and what we get from Regen breaking.
+    #Since, force=M*A is a linear equation, we can solve each acceleration independently
+    def give_weight_values(self,node_1, node_2):
+        acceleration_needed = (node_2[1]**2 - node_1[1]**2)/2*(node_2[0] - node_1[0])
+        #determine proportion of acceleration due to resistance
+        avg_speed = node_1[1]
+        resistance_force = train_force_resistance_curve(avg_speed)
+        resistance_accel = resistance_force[1]/self.effective_mass
+        if abs(acceleration_needed) <= abs(resistance_accel):
+            return abs(resistance_accel)*(node_2[0] - node_1[0])
+        accel_without_res = -1*np.abs(np.abs(acceleration_needed)- np.abs(resistance_accel))
+        #determine maximum available accel for regen breaking
+        available_regen_force = electric_maximum_breaking_rate(avg_speed)
+        regen_accel = available_regen_force/self.effective_mass
+        if abs(regen_accel)+abs(resistance_accel)>=abs(acceleration_needed):
+            regen_accel = abs(abs(acceleration_needed) - abs(resistance_accel))
+            regen_accel = -1*regen_accel
+            return regen_accel*(node_2[0] - node_1[0]) + abs(resistance_accel)*(node_2[0] - node_1[0])
+        if abs(regen_accel)+abs(resistance_accel) < abs(acceleration_needed):
+            return abs(resistance_accel)*(node_2[0] - node_1[0]) - (node_2[0] - node_1[0])*abs(regen_accel) + (abs(acceleration_needed) - abs(resistance_accel) - abs(regen_accel))*(node_2[0] - node_1[0])
+
+
+
         return
 
     def determine_connections(self,node,node_index, sorted_list, number_of_partitions, G):
@@ -420,7 +450,7 @@ class train():
         counter = node_index+1
         while reference_counter <= translated_radius + search_radius:
             if node[0][0] < sorted_list[counter][0][0] and node[0][1] > sorted_list[counter][0][1]:
-                G.add_edge(node[0],sorted_list[counter][0])
+                G.add_edge(node[0],sorted_list[counter][0], weight = self.give_weight_values(node[0],sorted_list[counter][0]))
             counter += 1
             reference_counter = sorted_list[counter][1]
         return
