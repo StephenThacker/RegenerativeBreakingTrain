@@ -130,13 +130,14 @@ class train():
         self.prev_RHS = False
         self.RHS_lower = 0
         self.interp_rows = []
-        self.max_grid_partitions = 50
+        self.max_grid_partitions = 15
         self.node_dict = {}
         self.LHS_interp_arr1 = 0
         self.row_array = []
         self.grid_row_array = []
         self.RHS_interp_arr2 = []
         self.primary_node = 0
+        self.max_distance_from_list = 0
 
 
 
@@ -167,7 +168,6 @@ class train():
             self.current_tractive_effort = result[0]
             self.current_train_resistance = result[1]
             self.train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
-            print("here")
             self.current_kinetic_energy = 0.5*self.effective_mass*(self.vehicle_speed)**2
 
             #update vehicle speed, based on traction effort
@@ -227,7 +227,7 @@ class train():
         plt.plot(train_position_arr,train_velocity_arr)
         return [train_position_arr,train_velocity_arr]
 
-    def determine_electric_break_stopping_trajectory(self, train_start_position, train_velocity,time_increment):
+    def determine_electric_break_stopping_trajectory(self, train_start_position, train_velocity, time_increment):
         self.curve_calculation_velocity = train_velocity
         self.curve_calculation_position = train_start_position
         train_velocity_arr = []
@@ -390,53 +390,88 @@ class train():
         sorted_list = sorted(array, key=lambda x: x[1])
         sorted_list.insert(0,[self.primary_node,0])
 
+        self.max_distance_from_list = sorted_list[len(sorted_list)-1][0][0] - sorted_list[0][0][0]
+
         for i in range(0,len(sorted_list)):
             try:
                 self.determine_connections(sorted_list[i],i,sorted_list,60,G)
             except IndexError:
                 continue
-        #number_of_nodes_to_visualize = 400
-        #random_nodes = random.sample(list(G.nodes()), number_of_nodes_to_visualize)
-        #subgraph = G.subgraph(random_nodes)
+        number_of_nodes_to_visualize = 400
+        random_nodes = random.sample(list(G.nodes()), number_of_nodes_to_visualize)
+        subgraph = G.subgraph(random_nodes)
+        bellman_ford_nodes = sorted_list
         nodes_of_interest = sorted_list[0:50]
 
         shaped_array = []
+        shaped_array_bellman = []
         for i in range(0,len(nodes_of_interest)):
             shaped_array += [nodes_of_interest[i][0]]
 
+        for i in range(0,len(bellman_ford_nodes)):
+            shaped_array_bellman += [bellman_ford_nodes[i][0]]
 
-        subgraph2 = G.subgraph(shaped_array)
-        nx.draw(subgraph2, pos=self.node_dict, with_labels=False, node_color = 'skyblue', node_size = 2, font_size = 5)
-        labels = nx.get_edge_attributes(subgraph2,'weight')
-        nx.draw_networkx_edge_labels(G, pos=self.node_dict, edge_labels=labels, font_size=4)
+
+        self.bellman_ford_algorithm_set_distance(shaped_array_bellman[0],G,shaped_array_bellman)
+
+
+        #subgraph2 = G.subgraph(shaped_array)
+        nx.draw(subgraph, pos=self.node_dict, with_labels=False, node_color = 'skyblue', node_size = 2, font_size = 5)
+        #labels = nx.get_edge_attributes(subgraph,'weight')
+        #nx.draw_networkx_edge_labels(G, pos=self.node_dict, edge_labels=labels, font_size=4)
 
         #nx.draw(subgraph, pos=self.node_dict, with_labels=False, node_color='skyblue', node_size=2, font_size=5,
         #            font_weight='bold',width = 0.1)
         plt.show()
         return
 
+
+    def bellman_ford_algorithm_set_distance(self, start_node, graph,sorted_list):
+        graph.nodes[sorted_list[0]]['distance'] = 0
+        graph.nodes[sorted_list[0]]['predecessor'] = None
+        #initialize all distances
+        for i in range(0,len(sorted_list)):
+            if sorted_list[i] != start_node:
+                graph.nodes[sorted_list[i]]['distance'] = float('inf')
+                graph.nodes[sorted_list[i]]['predecessor'] = None
+
+        for i in range(0,len(sorted_list)-1):
+            print(i)
+            for node_1,node_2 in graph.edges():
+                if graph.nodes[node_1]['distance'] + graph[node_1][node_2]['weight'] < graph.nodes[node_2]['distance']:
+                    graph.nodes[node_2]['distance'] = graph.nodes[node_1]['distance'] + graph[node_1][node_2]['weight']
+                    graph.nodes[node_2]['predecessor'] = node_1
+
+        for node_1, node_2 in graph.edges():
+            if graph.nodes[node_1]['distance'] + graph[node_1][node_2]['weight'] < graph.nodes[node_2]['distance']:
+                return "Negative cycle Detected"
+
+        return
+
+
     #computes the weight values of the edges.
     #resistance acceleration is always present.
     #Need to compute the work done by the breaks, what is lost as heat and what we get from Regen breaking.
     #Since, force=M*A is a linear equation, we can solve each acceleration independently
     def give_weight_values(self,node_1, node_2):
-        acceleration_needed = (node_2[1]**2 - node_1[1]**2)/2*(node_2[0] - node_1[0])
+        dist = 2*(node_2[0] - node_1[0])/self.max_distance_from_list
+        acceleration_needed = (node_2[1]**2 - node_1[1]**2)/(dist*200)
         #determine proportion of acceleration due to resistance
         avg_speed = node_1[1]
         resistance_force = train_force_resistance_curve(avg_speed)
-        resistance_accel = resistance_force[1]/self.effective_mass
+        resistance_accel = 0
         if abs(acceleration_needed) <= abs(resistance_accel):
-            return abs(resistance_accel)*(node_2[0] - node_1[0])
+            return abs(resistance_accel)*(dist*1000)
         accel_without_res = -1*np.abs(np.abs(acceleration_needed)- np.abs(resistance_accel))
         #determine maximum available accel for regen breaking
         available_regen_force = electric_maximum_breaking_rate(avg_speed)
         regen_accel = available_regen_force/self.effective_mass
         if abs(regen_accel)+abs(resistance_accel)>=abs(acceleration_needed):
             regen_accel = abs(abs(acceleration_needed) - abs(resistance_accel))
-            regen_accel = -1*regen_accel
-            return regen_accel*(node_2[0] - node_1[0]) + abs(resistance_accel)*(node_2[0] - node_1[0])
+            regen_accel = -10*regen_accel
+            return regen_accel*dist + abs(resistance_accel)*dist
         if abs(regen_accel)+abs(resistance_accel) < abs(acceleration_needed):
-            return abs(resistance_accel)*(node_2[0] - node_1[0]) - (node_2[0] - node_1[0])*abs(regen_accel) + (abs(acceleration_needed) - abs(resistance_accel) - abs(regen_accel))*(node_2[0] - node_1[0])
+            return abs(resistance_accel)*(dist*1000) - 100*dist*abs(regen_accel) + (abs(acceleration_needed)/10 - abs(resistance_accel) - 10*abs(regen_accel))*dist
 
 
 
@@ -446,6 +481,7 @@ class train():
         max_distance = sorted_list[len(sorted_list)-1][1]
         search_radius = max_distance/number_of_partitions
         translated_radius = node[1] + search_radius
+        test_count = 0
         reference_counter = sorted_list[node_index+1][1]
         counter = node_index+1
         while reference_counter <= translated_radius + search_radius:
