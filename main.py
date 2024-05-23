@@ -479,6 +479,22 @@ class train():
         return
 
 
+   def give_weight_values_heuristic(self, node_1, node_2):
+        desired_accel = (node_2[1]**2 - node_1[1]**2)/(2*(node_2[0] - node_1[0]))
+        initial_velocity = node_1[1]
+        resistance_force = train_force_resistance_curve(node_1[1])[1]
+        component_accel_due_to_resit = (resistance_force)/self.effective_mass
+        work_due_to_resistance = component_accel_due_to_resit*(node_2[0] - node_1[0])
+        remain_accel = abs(abs(desired_accel)-abs(component_accel_due_to_resit))
+        electric_regen_braking_force = electric_maximum_breaking_rate(node_1[1])
+        component_accel_due_to_regen = min((electric_regen_braking_force)/self.effective_mass,remain_accel)
+        work_due_to_elec_regen = component_accel_due_to_regen*(node_2[0] - node_1[0])
+        component_accel_due_to_braking =  abs(remain_accel - min((electric_regen_braking_force)/self.effective_mass,remain_accel))
+        work_due_to_reg_braking = component_accel_due_to_braking*(node_2[0] - node_1[0])
+        score = (work_due_to_resistance + work_due_to_reg_braking - work_due_to_elec_regen)
+        score1 = -work_due_to_elec_regen
+        return score
+
     #computes the weight values of the edges.
     #resistance acceleration is always present.
     #Need to compute the work done by the breaks, what is lost as heat and what we get from Regen breaking.
