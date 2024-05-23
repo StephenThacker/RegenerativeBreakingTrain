@@ -120,7 +120,7 @@ class train():
         self.curve_calculation_acceleration = 0
         self.curve_calculation_position = 0
         self.curve_calculation_velocity = 0
-        self.coasting_distance_limit = 240000
+        self.coasting_distance_limit = 180000
         self.current_coasting_location = 0
         self.state_coasting = False
         self.coasting_train_acceleration = 0
@@ -138,6 +138,11 @@ class train():
         self.RHS_interp_arr2 = []
         self.primary_node = 0
         self.max_distance_from_list = 0
+        self.brak_accel_const = self.constant_breaking_rate
+        self.record_train_accel_arr = []
+        self.record_train_coasting_acc = []
+        self.record_train_regen_braking_acc = []
+        self.record_train_reg_braking_acc = []
 
 
 
@@ -168,6 +173,7 @@ class train():
             self.current_tractive_effort = result[0]
             self.current_train_resistance = result[1]
             self.train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
+            self.record_train_accel_arr += [self.train_acceleration]
             self.current_kinetic_energy = 0.5*self.effective_mass*(self.vehicle_speed)**2
 
             #update vehicle speed, based on traction effort
@@ -184,6 +190,7 @@ class train():
             self.current_tractive_effort = -1*self.current_breaking_force
             #update speed/distance profiles
             self.train_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,self.current_train_resistance,self.current_tractive_effort,self.gravitational_constant_newtons)
+            self.record_train_reg_braking_acc += [self.train_acceleration]
             return
 
         if self.state_coasting:
@@ -196,6 +203,7 @@ class train():
                                                                             self.current_tractive_effort,
                                                                             self.gravitational_constant_newtons)
 
+            self.record_train_coasting_acc += [self.coasting_train_acceleration]
             self.current_coasting_location = position_in_1_dimension(self.current_coasting_location, self.coasting_vehicle_speed, self.time_increment,
                                                           self.coasting_train_acceleration)
             self.coasting_vehicle_speed = final_velocity(self.coasting_vehicle_speed, self.coasting_train_acceleration, self.time_increment)
@@ -214,10 +222,11 @@ class train():
         train_position_arr += [self.curve_calculation_position]
 
         while self.curve_calculation_velocity > 0:
-            results = train_force_resistance_curve(train_velocity)
+            results = train_force_resistance_curve(self.curve_calculation_velocity)
             curve_resistance = results[1]
             curve_max_braking_rate = -1*self.determine_max_breaking_force(self.curve_calculation_velocity)
             self.curve_calculation_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,curve_resistance, curve_max_braking_rate,self.gravitational_constant_newtons)
+            self.record_train_reg_braking_acc += [self.curve_calculation_acceleration]
             self.curve_calculation_position = position_in_1_dimension(self.curve_calculation_position,self.curve_calculation_velocity,time_increment,self.curve_calculation_acceleration)
             self.curve_calculation_velocity = final_velocity(self.curve_calculation_velocity,self.curve_calculation_acceleration,time_increment)
             train_position_arr += [self.curve_calculation_position]
@@ -236,10 +245,13 @@ class train():
         train_position_arr += [self.curve_calculation_position]
 
         while self.curve_calculation_velocity > 0:
-            results = train_force_resistance_curve(train_velocity)
+            print("infinite")
+            results = train_force_resistance_curve(self.curve_calculation_velocity)
             curve_resistance = results[1]
-            curve_max_braking_rate = -1*electric_maximum_breaking_rate(train_velocity)
+            curve_max_braking_rate = -1*electric_maximum_breaking_rate(self.curve_calculation_velocity)
+            print(curve_max_braking_rate)
             self.curve_calculation_acceleration = self.lomonoffs_equation_of_motion_acc(self.effective_mass,self.tare_mass,self.angle_of_incline,curve_resistance, curve_max_braking_rate,self.gravitational_constant_newtons)
+            self.record_train_regen_braking_acc += [self.curve_calculation_acceleration]
             self.curve_calculation_position = position_in_1_dimension(self.curve_calculation_position,self.curve_calculation_velocity,time_increment,self.curve_calculation_acceleration)
             self.curve_calculation_velocity = final_velocity(self.curve_calculation_velocity,self.curve_calculation_acceleration,time_increment)
             train_position_arr += [self.curve_calculation_position]
@@ -317,7 +329,7 @@ class train():
         max_traj_results2 = self.determine_max_stopping_trajectory(self.current_coasting_location,self.coasting_vehicle_speed,self.time_increment)
         plt.plot(coast_pos_arr,coast_speed_arr)
         plt.xlabel("Distance")
-        plt.ylabel("Speed in Km/hr")
+        plt.ylabel("Speed ")
         #plt.show()
         #plt.close()
 
@@ -391,7 +403,7 @@ class train():
         sorted_list = sorted(array, key=lambda x: x[1])
         sorted_list.insert(0,[self.primary_node,0])
 
-        vel_array = RHS_array[len(RHS_array)-50:len(RHS_array)-1]
+        vel_array = RHS_array[len(RHS_array)-100:len(RHS_array)-1]
 
         self.max_distance_from_list = sorted_list[len(sorted_list)-1][0][0] - sorted_list[0][0][0]
 
@@ -415,13 +427,23 @@ class train():
             shaped_array_bellman += [bellman_ford_nodes[i][0]]
 
 
+
         self.bellman_ford_algorithm_set_distance(shaped_array_bellman[0],G,shaped_array_bellman)
+
+        min_nodes = []
+        for node in G.nodes():
+            try:
+                if node[1] < 70:
+                    print(G.nodes[node]['distance'])
+                    min_nodes += [[node,G.nodes[node]['distance']]]
+            except KeyError:
+                continue
 
         minimizing_arr = []
         for i in range(0,len(vel_array)):
             minimizing_arr += [[vel_array[i],G.nodes[vel_array[i]]['distance']]]
 
-        sorted_vel_list_final = sorted(minimizing_arr, key=lambda x: x[1])
+        sorted_vel_list_final = sorted(min_nodes, key=lambda x: x[1])
         end_node = sorted_vel_list_final[len(sorted_vel_list_final)-1]
         path_nodes = self.trace_back_path(end_node,shaped_array_bellman[0],G)
 
@@ -442,7 +464,7 @@ class train():
 
         #nx.draw(subgraph, pos=self.node_dict, with_labels=False, node_color='skyblue', node_size=2, font_size=5,
         #            font_weight='bold',width = 0.1)
-        plt.show()
+        #plt.show()
         return
 
     #traces back the path and records the intermediate nodes.
@@ -452,7 +474,6 @@ class train():
         while current_node != start_node:
             intermediate_nodes += [current_node]
             test_variable = graph.nodes[current_node]['predecessor']
-            print(graph.nodes[current_node]['predecessor'])
             current_node = graph.nodes[current_node]['predecessor']
 
         return intermediate_nodes
@@ -479,7 +500,12 @@ class train():
         return
 
 
-   def give_weight_values_heuristic(self, node_1, node_2):
+    #computes the weight values of the edges.
+    #resistance acceleration is always present.
+    #Need to compute the work done by the breaks, what is lost as heat and what we get from Regen breaking.
+    #Since, force=M*A is a linear equation, we can solve each acceleration independently
+
+    def give_weight_values_heuristic(self, node_1, node_2):
         desired_accel = (node_2[1]**2 - node_1[1]**2)/(2*(node_2[0] - node_1[0]))
         initial_velocity = node_1[1]
         resistance_force = train_force_resistance_curve(node_1[1])[1]
@@ -492,32 +518,28 @@ class train():
         component_accel_due_to_braking =  abs(remain_accel - min((electric_regen_braking_force)/self.effective_mass,remain_accel))
         work_due_to_reg_braking = component_accel_due_to_braking*(node_2[0] - node_1[0])
         score = (work_due_to_resistance + work_due_to_reg_braking - work_due_to_elec_regen)
-        score1 = -work_due_to_elec_regen
         return score
 
-    #computes the weight values of the edges.
-    #resistance acceleration is always present.
-    #Need to compute the work done by the breaks, what is lost as heat and what we get from Regen breaking.
-    #Since, force=M*A is a linear equation, we can solve each acceleration independently
+        return
     def give_weight_values(self,node_1, node_2):
-        dist = 2*(node_2[0] - node_1[0])/self.max_distance_from_list
-        acceleration_needed = (node_2[1]**2 - node_1[1]**2)/(dist*200)
+        dist = 2*(node_2[0] - node_1[0])
+        acceleration_needed = (node_2[1]**2 - node_1[1]**2)/(dist)
         #determine proportion of acceleration due to resistance
         avg_speed = node_1[1]
         resistance_force = train_force_resistance_curve(avg_speed)
         resistance_accel = 0
         if abs(acceleration_needed) <= abs(resistance_accel):
-            return abs(resistance_accel)*(dist*1000)
+            return abs(resistance_accel)*(dist)
         accel_without_res = -1*np.abs(np.abs(acceleration_needed)- np.abs(resistance_accel))
         #determine maximum available accel for regen breaking
         available_regen_force = electric_maximum_breaking_rate(avg_speed)
         regen_accel = available_regen_force/self.effective_mass
         if abs(regen_accel)+abs(resistance_accel)>=abs(acceleration_needed):
             regen_accel = abs(abs(acceleration_needed) - abs(resistance_accel))
-            regen_accel = -10*regen_accel
+            regen_accel = -1*regen_accel
             return regen_accel*dist + abs(resistance_accel)*dist
         if abs(regen_accel)+abs(resistance_accel) < abs(acceleration_needed):
-            return abs(resistance_accel)*(dist*1000) - 100*dist*abs(regen_accel) + (abs(acceleration_needed)/10 - abs(resistance_accel) - 10*abs(regen_accel))*dist
+            return abs(resistance_accel)*(dist) - 1*dist*abs(regen_accel) + (abs(acceleration_needed) - abs(resistance_accel) - 1*abs(regen_accel))*dist
 
 
 
@@ -532,7 +554,8 @@ class train():
         counter = node_index+1
         while reference_counter <= translated_radius + search_radius:
             if node[0][0] < sorted_list[counter][0][0] and node[0][1] > sorted_list[counter][0][1]:
-                G.add_edge(node[0],sorted_list[counter][0], weight = self.give_weight_values(node[0],sorted_list[counter][0]))
+                self.give_weight_values_heuristic(node[0],sorted_list[counter][0])
+                G.add_edge(node[0],sorted_list[counter][0], weight = self.give_weight_values_heuristic(node[0],sorted_list[counter][0]))
             counter += 1
             reference_counter = sorted_list[counter][1]
         return
@@ -610,4 +633,4 @@ if __name__ == '__main__':
     electric_train.run_simulation()
     plt.show()
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+# See PyCharm help at https://www.jetbrains.com/help/pycharm
