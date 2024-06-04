@@ -42,7 +42,6 @@ def plot_curve(function, lower_bound,upper_bound, partitions):
     step_size = (upper_bound-lower_bound)/partitions
     step = lower_bound
     while step <= upper_bound:
-        print("here")
         array_func += [function(step)]
         array_step += [step]
         step += step_size
@@ -73,8 +72,11 @@ class train():
         self.max_decel_array_curve_pos = []
         self.elec_decel_array_curve_vel = []
         self.elec_decel_array_curve_pos = []
+        self.max_decel_array_curve_vel2 = []
+        self.max_decel_array_curve_pos2 = []
         self.braking_starting_vel = 0
         self.braking_starting_post = 0
+        self.coasting_range = 23000
 
     #assumes the train operates on a 1-dimensional flat track, hence, the last term, with sin(theta), is not present
     def lomonosoffs_equation(self, tractive_force_app, resistance):
@@ -125,11 +127,38 @@ class train():
         self.current_velocity = self.braking_starting_vel
         self.current_distance_from_origin = self.braking_starting_post
 
-        
+        self.elec_decel_array_curve_pos += [self.current_distance_from_origin]
+        self.elec_decel_array_curve_vel += [self.current_velocity]
+
         while self.current_velocity > 0:
-            
+            self.simulation_step("braking_elec")
+            self.elec_decel_array_curve_pos += [self.current_distance_from_origin]
+            self.elec_decel_array_curve_vel += [self.current_velocity]
+        plt.plot(self.elec_decel_array_curve_pos, self.elec_decel_array_curve_vel)
 
+        self.current_velocity = self.braking_starting_vel
+        self.current_distance_from_origin = self.braking_starting_post
 
+        self.coast_array_curve_pos += [self.braking_starting_post]
+        self.coast_array_curve_vel += [self.braking_starting_vel]
+
+        while self.current_distance_from_origin <= self.braking_starting_post + self.coasting_range:
+            self.simulation_step("coasting")
+            self.coast_array_curve_pos += [self.current_distance_from_origin]
+            self.coast_array_curve_vel += [self.current_velocity]
+
+        plt.plot(self.coast_array_curve_pos,self.coast_array_curve_vel)
+
+        self.max_decel_array_curve_pos2 += [self.current_distance_from_origin]
+        self.max_decel_array_curve_vel2 += [self.current_velocity]
+
+        while self.current_velocity > 0:
+            self.simulation_step("braking_full")
+            self.max_decel_array_curve_pos2 += [self.current_distance_from_origin]
+            self.max_decel_array_curve_vel2 += [self.current_velocity]
+
+        plt.plot(self.max_decel_array_curve_pos2,self.max_decel_array_curve_vel2)
+        plt.show()
 
 
 
@@ -146,4 +175,5 @@ if __name__ == '__main__':
     plt.close()
     electric_train.simulation()
     print("steve")
+
 
